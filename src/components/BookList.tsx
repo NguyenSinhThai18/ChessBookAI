@@ -1,88 +1,157 @@
-import { useState } from 'react';
-import { Plus, BookOpen, Calendar } from 'lucide-react';
+import { useEffect, useState } from "react";
+import { Plus, Trash2, BookOpen } from "lucide-react";
+import { fetchBooks, createBook, Book } from "../services/bookService";
+import { toast } from "sonner";
 
-interface Book {
-  id: string;
-  title: string;
-  imageUrl: string;
-  createdDate: string;
-  lessonsCount: number;
-}
-
-interface BookListProps {
-  books: Book[];
-  setBooks: (books: Book[]) => void;
+interface Props {
   onBookSelect: (book: Book) => void;
 }
 
-export function BookList({ books, setBooks, onBookSelect }: BookListProps) {
-  const handleCreateBook = () => {
-    // Logic tạo sách mới sẽ được thêm sau
-    alert('Chức năng tạo sách mới sẽ được thêm vào!');
+/* ================= HELPERS ================= */
+
+function getGradientFromTitle(title: string) {
+  const colors = [
+    ["from-blue-500", "to-blue-700"],
+    ["from-purple-500", "to-purple-700"],
+    ["from-green-500", "to-green-700"],
+    ["from-pink-500", "to-pink-700"],
+    ["from-orange-500", "to-orange-700"],
+    ["from-teal-500", "to-teal-700"],
+  ];
+
+  let hash = 0;
+  for (let i = 0; i < title.length; i++) {
+    hash = title.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function isValidCover(url?: string) {
+  return typeof url === "string" && url.startsWith("http");
+}
+
+/* ================= COMPONENT ================= */
+
+export function BookList({ onBookSelect }: Props) {
+  const [books, setBooks] = useState<Book[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchBooks()
+      .then(setBooks)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleCreateBook = async () => {
+    const title = prompt("Nhập tên sách");
+    if (!title) return;
+
+    await createBook(title, ""); // chưa có cover
+    setBooks(await fetchBooks());
+
+    toast.success("Đã tạo sách mới");
   };
+
+  if (loading) {
+    return <div className="p-8 text-gray-500">Đang tải sách…</div>;
+  }
 
   return (
     <div className="p-8">
       {/* Header */}
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-800">Danh Sách Sách</h2>
-          <p className="text-gray-500 mt-1">Quản lý các sách dạy chơi cờ cho trẻ em</p>
-        </div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-bold text-gray-800">Danh sách sách</h2>
         <button
           onClick={handleCreateBook}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow-lg transition-colors"
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
         >
-          <Plus className="w-5 h-5" />
-          <span>Tạo Sách Mới</span>
+          <Plus className="w-4 h-4" />
+          Tạo sách
         </button>
       </div>
 
-      {/* Books Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-        {books.map((book) => (
-          <div
-            key={book.id}
-            onClick={() => onBookSelect(book)}
-            className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow overflow-hidden cursor-pointer group"
-            style={{ aspectRatio: '1 / 1.414' }}
-          >
-            {/* Book Image - Tờ A4 style */}
-            <div className="relative h-full overflow-hidden bg-gray-200">
-              <img
-                src={book.imageUrl}
-                alt={book.title}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-              />
-              {/* Overlay gradient for better text visibility */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              
-              {/* Book Title at bottom */}
-              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-                <h3 className="text-base font-semibold text-white line-clamp-2">
-                  {book.title}
-                </h3>
+      {/* LIST – RECTANGLE CARD */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {books.map((book) => {
+          const hasCover = isValidCover(book.coverUrl);
+          const [from, to] = getGradientFromTitle(book.title);
+
+          return (
+            <div
+              key={book.id}
+              onClick={() => onBookSelect(book)}
+              className="
+                group cursor-pointer
+                flex items-center gap-4
+                bg-white
+                border border-gray-300
+                rounded-xl
+                p-4
+                shadow-sm
+                hover:shadow-md
+                hover:border-blue-500
+                transition
+              "
+            >
+              {/* Thumbnail */}
+              <div className="w-20 h-20 rounded-lg overflow-hidden shrink-0">
+                {hasCover ? (
+                  <img
+                    src={book.coverUrl}
+                    alt={book.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display =
+                        "none";
+                    }}
+                  />
+                ) : (
+                  <div
+                    className={`w-full h-full bg-gradient-to-br ${from} ${to}
+                                flex items-center justify-center text-white`}
+                  >
+                    <BookOpen className="w-6 h-6 opacity-90" />
+                  </div>
+                )}
               </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-gray-800 truncate">
+                  {book.title}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Chưa có ảnh bìa
+                </p>
+              </div>
+
+              {/* Delete */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toast.info("Xóa sách xử lý trong BookDetail");
+                }}
+                className="
+                  opacity-0 group-hover:opacity-100
+                  p-2 rounded-lg
+                  bg-red-50 hover:bg-red-100
+                  text-red-600
+                  transition
+                "
+                title="Xóa sách"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Empty State (hiển thị khi không có sách) */}
+      {/* Empty */}
       {books.length === 0 && (
-        <div className="text-center py-16">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gray-100 mb-4">
-            <BookOpen className="w-10 h-10 text-gray-400" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">Chưa có sách nào</h3>
-          <p className="text-gray-500 mb-6">Bắt đầu bằng cách tạo sách dạy cờ đầu tiên!</p>
-          <button
-            onClick={handleCreateBook}
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Tạo Sách Đầu Tiên</span>
-          </button>
+        <div className="text-center py-16 text-gray-400">
+          Chưa có sách nào
         </div>
       )}
     </div>
