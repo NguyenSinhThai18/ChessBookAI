@@ -1545,6 +1545,7 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                 >
                   Dọc
                 </button>
+                
                 <button
                   onClick={() => setOrientation("landscape")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
