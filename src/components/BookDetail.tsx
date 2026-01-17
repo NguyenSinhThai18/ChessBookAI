@@ -46,8 +46,6 @@ import { Label } from "./ui/label";
 import { toast } from "sonner";
 import { Textarea } from "./ui/textarea";
 
-
-
 interface BookDetailProps {
   book: Book;
   onBack: () => void;
@@ -253,21 +251,21 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
   };
 
   const handleDeleteBook = async () => {
-  const ok = window.confirm(
-    `Bạn có chắc chắn muốn xóa sách "${book.title}"?\nHành động này KHÔNG thể hoàn tác.`
-  );
+    const ok = window.confirm(
+      `Bạn có chắc chắn muốn xóa sách "${book.title}"?\nHành động này KHÔNG thể hoàn tác.`
+    );
 
-  if (!ok) return;
+    if (!ok) return;
 
-  try {
-    await deleteBook(book.id);
-    toast.success("Đã xóa sách");
-    onDelete(book.id); // quay về BookList
-  } catch (err) {
-    console.error(err);
-    toast.error("Xóa sách thất bại");
-  }
-};
+    try {
+      await deleteBook(book.id);
+      toast.success("Đã xóa sách");
+      onDelete(book.id); // quay về BookList
+    } catch (err) {
+      console.error(err);
+      toast.error("Xóa sách thất bại");
+    }
+  };
 
   // Delete page
   const handleDeletePage = (pageId: string) => {
@@ -519,6 +517,52 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
       updatedPages[pageIndex].elements[elementIndex].size = { width, height };
       setPages(updatedPages);
     }
+  };
+
+  const handleUpdateBoardPosition = (
+    pageId: string,
+    elementId: string,
+    col: number,
+    row: number
+  ) => {
+    const pageIndex = pages.findIndex((p) => p.id === pageId);
+    if (pageIndex === -1) return;
+
+    const updatedPages = [...pages];
+    const elementIndex = updatedPages[pageIndex].elements.findIndex(
+      (e) => e.id === elementId
+    );
+    if (elementIndex === -1) return;
+
+    const element = updatedPages[pageIndex].elements[elementIndex];
+
+    const chessboard = updatedPages[pageIndex].elements.find(
+      (e) => e.id === element.data.chessboardId
+    );
+    if (!chessboard) return;
+
+    const cellSize = chessboard.size.width / 8;
+
+    updatedPages[pageIndex].elements[elementIndex].position = {
+      x:
+        chessboard.position.x +
+        col * cellSize +
+        cellSize / 2 -
+        element.size.width / 2,
+      y:
+        chessboard.position.y +
+        row * cellSize +
+        cellSize / 2 -
+        element.size.height / 2,
+    };
+
+    updatedPages[pageIndex].elements[elementIndex].data = {
+      ...element.data,
+      row,
+      col,
+    };
+
+    setPages(updatedPages);
   };
 
   // Update chess piece board position
@@ -776,20 +820,19 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
   };
 
   function sanitizeAIJson(aiJson: any) {
-  aiJson.pages?.forEach((p: any) => {
-    if (p.type === "exercise") {
-      delete p.points;
-    }
-
-    if (p.type === "guide") {
-      if (!Array.isArray(p.points)) {
-        p.points = [];
+    aiJson.pages?.forEach((p: any) => {
+      if (p.type === "exercise") {
+        delete p.points;
       }
-    }
-  });
-  return aiJson;
-}
 
+      if (p.type === "guide") {
+        if (!Array.isArray(p.points)) {
+          p.points = [];
+        }
+      }
+    });
+    return aiJson;
+  }
 
   const handleGenerateWithAI = async () => {
     if (!aiPrompt.trim()) {
@@ -810,42 +853,44 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
 
       const aiJson = sanitizeAIJson(JSON.parse(aiText));
 
-      const newPages = mapAiJsonToPages(aiJson, aiTemplate).map((page, index) => ({
-        ...page,
-        // Force string ID for pages created by AI to avoid number vs string issues
-        id: `ai-page-${Date.now()}-${index}`,
-        elements: normalizePageElements(
-          page.elements.map((el) => {
-            // For chess-piece, store pieceId (primitive) instead of full object
-            if (el.type === "chess-piece") {
-              const pieceId = el.data?.piece?.id ?? el.data?.pieceId;
-              return {
-                ...el,
-                data: {
-                  ...el.data,
-                  pieceId: pieceId,
-                  // remove any inline piece object to keep data JSON-safe
-                },
-              };
-            }
+      const newPages = mapAiJsonToPages(aiJson, aiTemplate).map(
+        (page, index) => ({
+          ...page,
+          // Force string ID for pages created by AI to avoid number vs string issues
+          id: `ai-page-${Date.now()}-${index}`,
+          elements: normalizePageElements(
+            page.elements.map((el) => {
+              // For chess-piece, store pieceId (primitive) instead of full object
+              if (el.type === "chess-piece") {
+                const pieceId = el.data?.piece?.id ?? el.data?.pieceId;
+                return {
+                  ...el,
+                  data: {
+                    ...el.data,
+                    pieceId: pieceId,
+                    // remove any inline piece object to keep data JSON-safe
+                  },
+                };
+              }
 
-            // For chess-marker, store markerId instead of full object
-            if (el.type === "chess-marker") {
-              const markerId = el.data?.marker?.id ?? el.data?.markerId;
-              return {
-                ...el,
-                data: {
-                  ...el.data,
-                  markerId: markerId,
-                },
-              };
-            }
+              // For chess-marker, store markerId instead of full object
+              if (el.type === "chess-marker") {
+                const markerId = el.data?.marker?.id ?? el.data?.markerId;
+                return {
+                  ...el,
+                  data: {
+                    ...el.data,
+                    markerId: markerId,
+                  },
+                };
+              }
 
-            // Default: return element but ensure no functions/symbols embedded
-            return el;
-          })
-        ),
-      }));
+              // Default: return element but ensure no functions/symbols embedded
+              return el;
+            })
+          ),
+        })
+      );
 
       setPages((prev) => [...prev, ...newPages]);
 
@@ -951,11 +996,28 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                           {element.type === "background" && "🖼️ Background"}
                           {element.type === "chessboard" && "♟️ Bàn cờ"}
                           {element.type === "chess-piece" &&
-                            `${element.data.side === "a" ? "⚪" : "⚫"} ${
-                              element.data.piece.name
-                            }`}
+                            (() => {
+                              const pieceDef = chessPieces.find(
+                                (p) => p.id === element.data?.pieceId
+                              );
+
+                              if (!pieceDef) return "❓ Quân cờ không xác định";
+
+                              return `${
+                                element.data.side === "a" ? "⚪" : "⚫"
+                              } ${pieceDef.name}`;
+                            })()}
+
                           {element.type === "chess-marker" &&
-                            `📍 ${element.data.marker.name}`}
+                            (() => {
+                              const markerDef = chessMarkers.find(
+                                (m) => m.id === element.data?.markerId
+                              );
+
+                              if (!markerDef) return "❓ Marker";
+
+                              return `📍 ${markerDef.name}`;
+                            })()}
                         </span>
                         <div className="flex items-center gap-1">
                           <button
@@ -1423,9 +1485,9 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
             <div className="flex items-center gap-3">
               {/* Save Book Button */}
               <button
-  onClick={handleSaveBook}
-  disabled={saving}
-  className={`
+                onClick={handleSaveBook}
+                disabled={saving}
+                className={`
     flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
     ${
       saving
@@ -1433,13 +1495,12 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
         : "bg-green-500 hover:bg-green-600 text-white"
     }
   `}
->
-  <Save className="w-5 h-5" />
-  <span className="font-medium">
-    {saving ? "Đang lưu..." : "Lưu sách"}
-  </span>
-</button>
-
+              >
+                <Save className="w-5 h-5" />
+                <span className="font-medium">
+                  {saving ? "Đang lưu..." : "Lưu sách"}
+                </span>
+              </button>
 
               {/* Delete Book Button */}
               <button
@@ -1545,7 +1606,6 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                 >
                   Dọc
                 </button>
-                
                 <button
                   onClick={() => setOrientation("landscape")}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
@@ -1564,7 +1624,7 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
         {/* Pages Content Area */}
         <div className="flex-1 overflow-auto bg-gray-200 py-8">
           <div className="max-w-5xl mx-auto space-y-6">
-              {pages.map((page, index) => (
+            {pages.map((page, index) => (
               <div
                 key={page.id}
                 className={`mx-auto bg-white shadow-lg relative cursor-pointer border-4 transition-all ${
@@ -1836,12 +1896,24 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                               };
 
                               const handleMouseUp = () => {
-                                document.removeEventListener("mousemove", handleMouseMove);
-                                document.removeEventListener("mouseup", handleMouseUp);
+                                document.removeEventListener(
+                                  "mousemove",
+                                  handleMouseMove
+                                );
+                                document.removeEventListener(
+                                  "mouseup",
+                                  handleMouseUp
+                                );
                               };
 
-                              document.addEventListener("mousemove", handleMouseMove);
-                              document.addEventListener("mouseup", handleMouseUp);
+                              document.addEventListener(
+                                "mousemove",
+                                handleMouseMove
+                              );
+                              document.addEventListener(
+                                "mouseup",
+                                handleMouseUp
+                              );
                             }}
                           >
                             <div
@@ -1875,7 +1947,7 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                         return (
                           <div
                             key={element.id}
-                            className={`absolute pointer-events-none ${
+                            className={`absolute cursor-move ${
                               selectedElementId === element.id
                                 ? "ring-1 ring-blue-400 rounded-full"
                                 : ""
@@ -1886,6 +1958,42 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                               width: element.size.width,
                               height: element.size.height,
                               opacity: 0.85,
+                            }}
+                            onMouseDown={(e) => {
+                              if (e.button !== 0) return;
+                              e.stopPropagation();
+
+                              const startX = e.clientX - element.position.x;
+                              const startY = e.clientY - element.position.y;
+
+                              const handleMouseMove = (ev: MouseEvent) => {
+                                handleUpdateElementPosition(
+                                  page.id,
+                                  element.id,
+                                  ev.clientX - startX,
+                                  ev.clientY - startY
+                                );
+                              };
+
+                              const handleMouseUp = () => {
+                                document.removeEventListener(
+                                  "mousemove",
+                                  handleMouseMove
+                                );
+                                document.removeEventListener(
+                                  "mouseup",
+                                  handleMouseUp
+                                );
+                              };
+
+                              document.addEventListener(
+                                "mousemove",
+                                handleMouseMove
+                              );
+                              document.addEventListener(
+                                "mouseup",
+                                handleMouseUp
+                              );
                             }}
                           >
                             {isDot ? (
@@ -2861,7 +2969,8 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                   Prompt AI
                 </Label>
                 <p className="text-sm text-gray-500 mb-3">
-                  Mô tả nội dung bạn muốn tạo. Ví dụ: "Chặn nước chiếu bằng quân tượng"
+                  Mô tả nội dung bạn muốn tạo. Ví dụ: "Chặn nước chiếu bằng quân
+                  tượng"
                 </p>
                 <Textarea
                   id="ai-prompt"

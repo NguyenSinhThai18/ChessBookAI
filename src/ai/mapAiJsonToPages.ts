@@ -112,12 +112,11 @@ export function mapAiJsonToPages(
         size: { width: 40, height: 40 },
         layer: 5,
         data: {
-          piece: { id: p.type },
+          pieceId: p.type, 
           side: p.color === "white" ? "a" : "b",
           chessboardId,
           row: squareInfo.row,
           col: squareInfo.col,
-          symbol: p.symbol,
         },
         visible: true,
       });
@@ -139,11 +138,7 @@ export function mapAiJsonToPages(
             size: { width: 30, height: 30 },
             layer: 10,
             data: {
-              marker: {
-                id: "dot",
-                name: "Điểm hướng dẫn",
-                color: "green",
-              },
+              markerId: "dot",
               chessboardId,
               row: pos.row,
               col: pos.col,

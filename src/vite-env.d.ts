@@ -12,7 +12,7 @@ interface ImportMetaEnv {
   readonly VITE_CLOUDINARY_CLOUD_NAME: string;
 
   // nếu có
-  readonly VITE_GITHUB_TOKEN?: string;
+  readonly VITE_GITHUB_TOKEN: string;
 }
 
 interface ImportMeta {
