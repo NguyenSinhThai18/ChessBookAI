@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { BookList } from "./components/BookList";
 import { BookDetail } from "./components/BookDetail";
-import { Resources } from "./components/Resources";
 import { BookOpen, FolderOpen, Settings } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
@@ -44,18 +43,7 @@ export default function App() {
             </div>
 
             <nav className="flex-1 p-4 space-y-2">
-              <button
-                onClick={() => setActiveTab("resources")}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg ${
-                  activeTab === "resources"
-                    ? "bg-blue-500 text-white"
-                    : "hover:bg-gray-100"
-                }`}
-              >
-                <FolderOpen className="w-5 h-5" />
-                Tài Nguyên
-              </button>
-
+              
               <button
                 onClick={() => setActiveTab("books")}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg ${
@@ -93,7 +81,6 @@ export default function App() {
             />
           ) : (
             <>
-              {activeTab === "resources" && <Resources />}
               {activeTab === "books" && (
                 <BookList onBookSelect={handleBookSelect} />
               )}

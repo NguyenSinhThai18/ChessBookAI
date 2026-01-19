@@ -28,12 +28,16 @@ export async function fetchBackgrounds(): Promise<Background[]> {
   }));
 }
 
-export async function addBackground(name: string, url: string) {
-  await addDoc(colRef, {
+export async function addBackground(
+  name: string,
+  url: string
+): Promise<Background> {
+  const docRef = await addDoc(colRef, {
     name,
     url,
     createdAt: serverTimestamp(),
   });
+  return { id: docRef.id, name, url };
 }
 
 export async function deleteBackground(id: string) {

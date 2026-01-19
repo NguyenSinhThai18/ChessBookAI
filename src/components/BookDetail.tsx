@@ -11,7 +11,10 @@ import type { Book } from "../services/bookService";
 import { deleteBook } from "../services/bookService";
 import { uploadImageToCloudinary } from "../services/uploadService";
 import { fetchIcons, addIcon, type Icon } from "../services/iconService";
-import { Save } from "lucide-react";
+import { loadResources, saveResources } from "../utils/resourceStorage";
+import type { Resource } from "../types/Resource";
+import { exportBookToPdf } from "../utils/exportPdf";
+import { Save, Download } from "lucide-react";
 
 import {
   ArrowLeft,
@@ -47,6 +50,8 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { toast } from "sonner";
 import { Textarea } from "./ui/textarea";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
 // Import types from ai module
 import type { PageElement } from "../ai/mapAiJsonToPages";
@@ -112,9 +117,13 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
 
   // Icons management
   const [icons, setIcons] = useState<Icon[]>([]);
-
-  // Refs for element auto-scroll
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  
+  // Backgrounds management
+  const [backgrounds, setBackgrounds] = useState<Resource[]>([]);
+  const [uploadingBackground, setUploadingBackground] = useState(false);
   const elementRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const pageRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Chess pieces data - with proper chess symbols
   const chessPieces = [
@@ -245,7 +254,40 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
 
   /* ================= LOAD ICONS ================= */
   useEffect(() => {
-    fetchIcons().then(setIcons).catch(console.error);
+    const saved = loadResources("icons");
+    if (saved.length > 0) {
+      setIcons(saved);
+    } else {
+      fetchIcons()
+        .then((data) => {
+          saveResources("icons", data);
+          setIcons(data);
+        })
+        .catch(console.error);
+    }
+  }, []);
+
+  /* ================= LOAD BACKGROUNDS ================= */
+  useEffect(() => {
+    const saved = loadResources("backgrounds");
+    if (saved.length > 0) {
+      setBackgrounds(saved);
+    } else {
+      const resourceFolders = [
+        { id: "backgrounds", items: [] },
+      ];
+      const preset = resourceFolders
+        .find((f) => f.id === "backgrounds")
+        ?.items.map((i: any) => ({
+          id: `preset-${i.id}`,
+          name: i.name,
+          url: i.url,
+          type: "background" as const,
+          isPreset: true,
+        })) ?? [];
+      saveResources("backgrounds", preset);
+      setBackgrounds(preset);
+    }
   }, []);
 
   /* ================= AUTO SCROLL TO SELECTED ELEMENT ================= */
@@ -278,6 +320,29 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
       toast.error("Lưu sách thất bại");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    try {
+      toast.info("Đang lưu và xuất PDF...");
+
+      // 1️⃣ LƯU SÁCH TRƯỚC
+      await handleSaveBook();
+
+      // 2️⃣ EXPORT PDF
+      await exportBookToPdf({
+        bookTitle: book.title,
+        pages,
+        pageRefs: pageRefs.current,
+        pageSize,
+        orientation,
+      });
+
+      toast.success("Xuất PDF thành công");
+    } catch (err) {
+      console.error(err);
+      toast.error("Xuất PDF thất bại");
     }
   };
 
@@ -325,7 +390,7 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
   };
 
   // Add background to selected page
-  const handleAddBackground = (item: any) => {
+  const handleAddBackground = (item: Resource | any) => {
     if (!selectedPageId) {
       alert("Vui lòng chọn trang trước khi thêm background");
       return;
@@ -865,6 +930,62 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
     setPages(updated);
     setSelectedElementId(newElement.id);
     toast.success("Đã thêm ảnh");
+  };
+
+  // Upload icon to Cloudinary and save to DB
+  const handleUploadIcon = async (file: File) => {
+    try {
+      setUploadingIcon(true);
+
+      const uploadResult = await uploadImageToCloudinary(file);
+      const url = uploadResult.secure_url;
+
+      const newIcon: Icon = {
+        id: `icon-${Date.now()}`,
+        name: file.name,
+        url,
+      };
+
+      const updated = [...icons, newIcon];
+      setIcons(updated);
+      saveResources("icons", updated);
+
+      toast.success("Đã upload icon");
+    } catch (err) {
+      console.error(err);
+      toast.error("Upload icon thất bại");
+    } finally {
+      setUploadingIcon(false);
+    }
+  };
+
+  // Upload background to Cloudinary
+  const handleUploadBackground = async (file: File) => {
+    try {
+      setUploadingBackground(true);
+
+      const uploadResult = await uploadImageToCloudinary(file);
+      const url = uploadResult.secure_url;
+
+      const newBg: Resource = {
+        id: `bg-${Date.now()}`,
+        name: file.name,
+        url,
+        type: "background",
+        isPreset: false,
+      };
+
+      const updated = [...backgrounds, newBg];
+      setBackgrounds(updated);
+      saveResources("backgrounds", updated);
+
+      toast.success("Đã upload background");
+    } catch (err) {
+      console.error(err);
+      toast.error("Upload background thất bại");
+    } finally {
+      setUploadingBackground(false);
+    }
   };
 
   // Add text to page
@@ -1639,6 +1760,15 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                 </span>
               </button>
 
+              {/* Export PDF Button */}
+              <button
+                onClick={handleExportPdf}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+              >
+                <Download className="w-5 h-5" />
+                <span className="font-medium">Xuất PDF</span>
+              </button>
+
               {/* Delete Book Button */}
               <button
                 onClick={handleDeleteBook}
@@ -1763,6 +1893,9 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
           <div className="max-w-5xl mx-auto space-y-6">
             {pages.map((page, index) => (
               <div
+                ref={(el) => {
+                  if (el) pageRefs.current[page.id] = el;
+                }}
                 key={page.id}
                 className={`mx-auto bg-white shadow-lg relative cursor-pointer border-4 transition-all ${
                   selectedPageId === page.id
@@ -2692,51 +2825,176 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                     </div>
                   </div>
                 ) : selectedFolder === "text" ? (
-                  // Text UI
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => handleAddText("title")}
-                      className="w-full px-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors"
-                    >
-                      ➕ Thêm Tiêu đề
-                    </button>
+                  <div className="space-y-4">
+                    {/* Section title */}
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-800">
+                        Văn bản
+                      </h4>
+                      <p className="text-xs text-gray-500">
+                        Chọn kiểu văn bản để thêm vào trang
+                      </p>
+                    </div>
 
-                    <button
-                      onClick={() => handleAddText("body")}
-                      className="w-full px-4 py-3 bg-emerald-400 hover:bg-emerald-500 text-white rounded-lg font-medium transition-colors"
-                    >
-                      ➕ Thêm Nội dung
-                    </button>
+                    {/* TEXT CARDS */}
+                    <div className="grid grid-cols-1 gap-3">
+                      {/* TITLE */}
+                      <div
+                        onClick={() => handleAddText("title")}
+                        className="
+                          cursor-pointer
+                          border-2 border-gray-200
+                          hover:border-emerald-500
+                          rounded-lg
+                          p-4
+                          transition
+                          group
+                          bg-white
+                        "
+                      >
+                        <div className="text-2xl font-bold text-gray-800 mb-1 group-hover:text-emerald-600">
+                          Tiêu đề
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Dùng cho tiêu đề chương, mục
+                        </div>
+                      </div>
+
+                      {/* BODY */}
+                      <div
+                        onClick={() => handleAddText("body")}
+                        className="
+                          cursor-pointer
+                          border-2 border-gray-200
+                          hover:border-emerald-400
+                          rounded-lg
+                          p-4
+                          transition
+                          group
+                          bg-white
+                        "
+                      >
+                        <div className="text-sm text-gray-800 leading-relaxed mb-1">
+                          Đây là nội dung văn bản mẫu. Bạn có thể chỉnh sửa
+                          sau khi thêm vào trang.
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Văn bản nội dung thông thường
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ) : selectedFolder === "backgrounds" ? (
-                  // Backgrounds Grid
-                  <div className="grid grid-cols-2 gap-3">
-                    {(() => {
-                      const items = (resourceFolders
-                        .find((f) => f.id === selectedFolder)
-                        ?.items || []).filter(isIconItem);
-                      return items.map((item) => (
+                  // Backgrounds UI with upload
+                  <div className="space-y-4">
+                    {/* Upload button */}
+                    <label className="block">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleUploadBackground(file);
+                        }}
+                      />
+                      <div className="w-full px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg cursor-pointer text-center font-medium transition-colors">
+                        {uploadingBackground ? "Đang upload..." : "⬆️ Tải background"}
+                      </div>
+                    </label>
+
+                    {/* Backgrounds grid */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {backgrounds.map((bg) => (
                         <div
-                          key={item.id}
-                          className="cursor-pointer group"
-                          onClick={() => handleAddBackground(item as unknown as Icon)}
+                          key={bg.id}
+                          className="relative group cursor-pointer"
+                          onClick={() => handleAddBackground(bg)}
                         >
-                          <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2">
+                          <div className="aspect-square overflow-hidden rounded-lg">
                             <img
-                              src={item.url}
-                              alt={item.name}
+                              src={bg.url}
+                              alt={bg.name}
                               className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                             />
                           </div>
-                          <p className="text-xs text-gray-600 text-center truncate">
-                            {item.name}
-                          </p>
+
+                          {!bg.isPreset && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const updated = backgrounds.filter(
+                                  (b) => b.id !== bg.id
+                                );
+                                setBackgrounds(updated);
+                                saveResources("backgrounds", updated);
+                                toast.success("Đã xoá background (demo)");
+                              }}
+                              className="absolute top-1 right-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-xs font-bold"
+                            >
+                              ✕
+                            </button>
+                          )}
                         </div>
-                      ));
-                    })()}
+                      ))}
+                    </div>
+                  </div>
+                ) : selectedFolder === "icons" ? (
+                  // Icons UI with upload
+                  <div className="space-y-4">
+                    {/* Upload button */}
+                    <label className="block">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleUploadIcon(file);
+                        }}
+                      />
+                      <div className="w-full px-4 py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-lg cursor-pointer text-center font-medium transition-colors">
+                        {uploadingIcon ? "Đang upload..." : "⬆️ Tải icon lên"}
+                      </div>
+                    </label>
+
+                    {/* Icons grid */}
+                    <div className="grid grid-cols-2 gap-3">
+                      {icons.map((icon) => (
+                        <div
+                          key={icon.id}
+                          className="relative group cursor-pointer"
+                          onClick={() => handleAddImage(icon)}
+                        >
+                          <div className="aspect-square rounded-lg overflow-hidden bg-gray-100">
+                            <img
+                              src={icon.url}
+                              alt={icon.name}
+                              className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-300"
+                            />
+                          </div>
+
+                          {/* Delete icon button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const updated = icons.filter(
+                                (i) => i.id !== icon.id
+                              );
+                              setIcons(updated);
+                              saveResources("icons", updated);
+                              toast.success("Đã xoá icon (demo)");
+                            }}
+                            className="absolute top-1 right-1 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-xs font-bold"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : (
-                  // Regular Items Grid (for icons, backgrounds, etc. with URLs)
+                  // Regular Items Grid (for other folders with URLs)
                   <div className="grid grid-cols-2 gap-3">
                     {(() => {
                       const items = (resourceFolders

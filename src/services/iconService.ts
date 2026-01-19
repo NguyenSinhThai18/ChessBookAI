@@ -10,11 +10,12 @@ export interface Icon {
   createdAt?: number;
 }
 
-export async function addIcon(icon: { url: string; name: string }) {
-  await addDoc(collection(db, "icons"), {
+export async function addIcon(icon: { url: string; name: string }): Promise<Icon> {
+  const docRef = await addDoc(collection(db, "icons"), {
     ...icon,
     createdAt: Date.now(),
   });
+  return { id: docRef.id, ...icon, createdAt: Date.now() };
 }
 
 export async function fetchIcons(): Promise<Icon[]> {
