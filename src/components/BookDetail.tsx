@@ -1,6 +1,6 @@
 // src/ui/BookDetail.tsx
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { callGitHubAI } from "../ai/githubAiClient";
 import { mapAiJsonToPages } from "../ai/mapAiJsonToPages";
 import { normalizePageElements } from "../ai/normalizePageElements";
@@ -9,6 +9,8 @@ import { fetchPages, saveAllPages } from "../services/pageService";
 import { updateBook } from "../services/bookService";
 import type { Book } from "../services/bookService";
 import { deleteBook } from "../services/bookService";
+import { uploadImageToCloudinary } from "../services/uploadService";
+import { fetchIcons, addIcon, type Icon } from "../services/iconService";
 import { Save } from "lucide-react";
 
 import {
@@ -46,6 +48,14 @@ import { Label } from "./ui/label";
 import { toast } from "sonner";
 import { Textarea } from "./ui/textarea";
 
+// Import types from ai module
+import type { PageElement } from "../ai/mapAiJsonToPages";
+
+// Type guard to check if item has a url property
+function isIconItem(item: any): item is { id: number; name: string; url: string } {
+  return 'url' in item && typeof item.url === 'string';
+}
+
 interface BookDetailProps {
   book: Book;
   onBack: () => void;
@@ -54,16 +64,6 @@ interface BookDetailProps {
 
 type PageSize = "a4" | "a5";
 type PageOrientation = "portrait" | "landscape";
-
-interface PageElement {
-  id: string;
-  type: "background" | "chessboard" | "chess-piece" | "chess-marker";
-  position: { x: number; y: number };
-  size: { width: number; height: number };
-  layer: number;
-  data: any;
-  visible: boolean;
-}
 
 interface Page {
   id: string;
@@ -109,6 +109,12 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
   const [templateChessStyle, setTemplateChessStyle] = useState<
     "classic" | "green" | "gray" | "brown"
   >("classic");
+
+  // Icons management
+  const [icons, setIcons] = useState<Icon[]>([]);
+
+  // Refs for element auto-scroll
+  const elementRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Chess pieces data - with proper chess symbols
   const chessPieces = [
@@ -199,6 +205,16 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
       color: "bg-amber-600",
       items: [],
     },
+    {
+      id: "text",
+      name: "Văn bản",
+      icon: <FileText className="w-5 h-5" />,
+      color: "bg-emerald-500",
+      items: [
+        { id: "title", name: "Tiêu đề" },
+        { id: "body", name: "Nội dung" },
+      ],
+    },
   ];
 
   const handleAddPage = () => {
@@ -226,6 +242,21 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
       }
     });
   }, [book.id]);
+
+  /* ================= LOAD ICONS ================= */
+  useEffect(() => {
+    fetchIcons().then(setIcons).catch(console.error);
+  }, []);
+
+  /* ================= AUTO SCROLL TO SELECTED ELEMENT ================= */
+  useEffect(() => {
+    if (selectedElementId && elementRefs.current[selectedElementId]) {
+      elementRefs.current[selectedElementId]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }
+  }, [selectedElementId]);
 
   /* ================= HANDLE SAVE BOOK ================= */
   const handleSaveBook = async () => {
@@ -393,16 +424,26 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
 
     let newElement: PageElement;
 
+    const markerSize = 40;
+
     if (pendingChessPiece) {
       // Add chess piece
       newElement = {
         id: `piece-${Date.now()}`,
         type: "chess-piece",
         position: {
-          x: chessboard.position.x + col * cellSize + cellSize / 2 - 20,
-          y: chessboard.position.y + row * cellSize + cellSize / 2 - 20,
+          x:
+            chessboard.position.x +
+            col * cellSize +
+            cellSize / 2 -
+            markerSize / 2,
+          y:
+            chessboard.position.y +
+            row * cellSize +
+            cellSize / 2 -
+            markerSize / 2,
         },
-        size: { width: 40, height: 40 },
+        size: { width: markerSize, height: markerSize },
         layer: maxLayer + 1,
         data: {
           pieceId: pendingChessPiece.piece.id,
@@ -420,10 +461,18 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
         id: `marker-${Date.now()}`,
         type: "chess-marker",
         position: {
-          x: chessboard.position.x + col * cellSize + cellSize / 2 - 20,
-          y: chessboard.position.y + row * cellSize + cellSize / 2 - 20,
+          x:
+            chessboard.position.x +
+            col * cellSize +
+            cellSize / 2 -
+            markerSize / 2,
+          y:
+            chessboard.position.y +
+            row * cellSize +
+            cellSize / 2 -
+            markerSize / 2,
         },
-        size: { width: 40, height: 40 },
+        size: { width: markerSize, height: markerSize },
         layer: maxLayer + 1,
         data: {
           markerId: pendingMarker.marker.id,
@@ -486,6 +535,20 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
 
           // Only update if within valid board range
           if (col >= 0 && col < 8 && row >= 0 && row < 8) {
+            // Snap to center of cell
+            updatedPages[pageIndex].elements[elementIndex].position = {
+              x:
+                chessboard.position.x +
+                col * cellSize +
+                cellSize / 2 -
+                element.size.width / 2,
+              y:
+                chessboard.position.y +
+                row * cellSize +
+                cellSize / 2 -
+                element.size.height / 2,
+            };
+
             updatedPages[pageIndex].elements[elementIndex].data = {
               ...element.data,
               row,
@@ -536,6 +599,11 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
 
     const element = updatedPages[pageIndex].elements[elementIndex];
 
+    // Only process for chess pieces and markers
+    if (element.type !== "chess-piece" && element.type !== "chess-marker") {
+      return;
+    }
+
     const chessboard = updatedPages[pageIndex].elements.find(
       (e) => e.id === element.data.chessboardId
     );
@@ -582,6 +650,11 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
     if (elementIndex === -1) return;
 
     const element = updatedPages[pageIndex].elements[elementIndex];
+
+    // Only process for chess pieces and markers
+    if (element.type !== "chess-piece" && element.type !== "chess-marker") {
+      return;
+    }
 
     // Find the chessboard
     const chessboard = updatedPages[pageIndex].elements.find(
@@ -764,6 +837,68 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
     );
   };
 
+  // Add image to page
+  const handleAddImage = (icon: Icon) => {
+    if (!selectedPageId) {
+      toast.error("Vui lòng chọn trang");
+      return;
+    }
+
+    const pageIndex = pages.findIndex((p) => p.id === selectedPageId);
+    if (pageIndex === -1) return;
+
+    const newElement: PageElement = {
+      id: `img-${Date.now()}`,
+      type: "image",
+      position: { x: 100, y: 100 },
+      size: { width: 200, height: 200 },
+      layer: 10,
+      data: {
+        url: icon.url,
+        name: icon.name,
+      },
+      visible: true,
+    };
+
+    const updated = [...pages];
+    updated[pageIndex].elements.push(newElement);
+    setPages(updated);
+    setSelectedElementId(newElement.id);
+    toast.success("Đã thêm ảnh");
+  };
+
+  // Add text to page
+  const handleAddText = (type: "title" | "body") => {
+    if (!selectedPageId) {
+      toast.error("Vui lòng chọn trang");
+      return;
+    }
+
+    const pageIndex = pages.findIndex((p) => p.id === selectedPageId);
+    if (pageIndex === -1) return;
+
+    const newText: PageElement = {
+      id: `text-${Date.now()}`,
+      type: "text",
+      position: { x: 100, y: 100 },
+      size: { width: 300, height: 80 },
+      layer: 20,
+      data: {
+        text: type === "title" ? "Tiêu đề" : "Nội dung",
+        textType: type,
+        fontSize: type === "title" ? 28 : 16,
+        fontWeight: type === "title" ? 700 : 400,
+      },
+      visible: true,
+    };
+
+    const updated = [...pages];
+    updated[pageIndex].elements.push(newText);
+    setPages(updated);
+    setSelectedElementId(newText.id);
+    toast.success("Đã thêm văn bản");
+  };
+
   // Chess style presets
   const chessStylePresets = {
     classic: { color1: "#f0d9b5", color2: "#b58863", name: "Cổ điển" },
@@ -860,22 +995,21 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
           id: `ai-page-${Date.now()}-${index}`,
           elements: normalizePageElements(
             page.elements.map((el) => {
-              // For chess-piece, store pieceId (primitive) instead of full object
+              // For chess-piece, ensure pieceId is stored correctly
               if (el.type === "chess-piece") {
-                const pieceId = el.data?.piece?.id ?? el.data?.pieceId;
+                const pieceId = el.data?.pieceId;
                 return {
                   ...el,
                   data: {
                     ...el.data,
                     pieceId: pieceId,
-                    // remove any inline piece object to keep data JSON-safe
                   },
                 };
               }
 
-              // For chess-marker, store markerId instead of full object
+              // For chess-marker, ensure markerId is stored correctly
               if (el.type === "chess-marker") {
-                const markerId = el.data?.marker?.id ?? el.data?.markerId;
+                const markerId = el.data?.markerId;
                 return {
                   ...el,
                   data: {
@@ -885,7 +1019,7 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                 };
               }
 
-              // Default: return element but ensure no functions/symbols embedded
+              // Default: return element as-is
               return el;
             })
           ),
@@ -984,6 +1118,9 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                   {sortedElements.map((element) => (
                     <div
                       key={element.id}
+                      ref={(el) => {
+                        elementRefs.current[element.id] = el;
+                      }}
                       className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
                         selectedElementId === element.id
                           ? "border-blue-500 bg-blue-50"
@@ -1636,7 +1773,10 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                   width: `${pageDimensions.width}px`,
                   height: `${pageDimensions.height}px`,
                 }}
-                onClick={() => setSelectedPageId(page.id)}
+                onClick={() => {
+                  setSelectedPageId(page.id);
+                  setSelectedElementId(null);
+                }}
               >
                 {/* Page Number */}
                 <div className="absolute top-4 right-4 text-gray-400 text-sm z-10">
@@ -1690,41 +1830,48 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
 
                       if (element.type === "chessboard") {
                         return (
-                          <Resizable
+                          <div
                             key={element.id}
-                            size={{
-                              width: element.size.width,
-                              height: element.size.height,
-                            }}
-                            onResizeStop={(e, direction, ref, d) => {
-                              handleUpdateElementSize(
-                                page.id,
-                                element.id,
-                                element.size.width + d.width,
-                                element.size.height + d.height
-                              );
-                            }}
-                            className={`absolute cursor-move ${
-                              selectedElementId === element.id
-                                ? "ring-2 ring-blue-500"
-                                : ""
-                            }`}
+                            className="absolute cursor-move"
                             style={{
                               left: `${element.position.x}px`,
                               top: `${element.position.y}px`,
                             }}
-                            enable={{
-                              top: false,
-                              right: true,
-                              bottom: true,
-                              left: false,
-                              topRight: false,
-                              bottomRight: true,
-                              bottomLeft: false,
-                              topLeft: false,
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedElementId(element.id);
                             }}
-                            lockAspectRatio={true}
                           >
+                            <Resizable
+                              size={{
+                                width: element.size.width,
+                                height: element.size.height,
+                              }}
+                              onResizeStop={(e, direction, ref, d) => {
+                                handleUpdateElementSize(
+                                  page.id,
+                                  element.id,
+                                  element.size.width + d.width,
+                                  element.size.height + d.height
+                                );
+                              }}
+                              className={`${
+                                selectedElementId === element.id
+                                  ? "ring-2 ring-blue-500"
+                                  : ""
+                              }`}
+                              enable={{
+                                top: false,
+                                right: true,
+                                bottom: true,
+                                left: false,
+                                topRight: false,
+                                bottomRight: true,
+                                bottomLeft: false,
+                                topLeft: false,
+                              }}
+                              lockAspectRatio={true}
+                            >
                             <div className="w-full h-full relative">
                               {/* Chessboard with border and coordinates */}
                               <div className="absolute inset-0 border-2 border-gray-700 rounded-md shadow-sm">
@@ -1846,7 +1993,8 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                                 </div>
                               </div>
                             </div>
-                          </Resizable>
+                            </Resizable>
+                          </div>
                         );
                       }
 
@@ -1870,7 +2018,7 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                             key={element.id}
                             className={`absolute cursor-move ${
                               selectedElementId === element.id
-                                ? "ring-1 ring-blue-500 rounded-md"
+                                ? "ring-2 ring-blue-500 rounded-md"
                                 : ""
                             }`}
                             style={{
@@ -1878,6 +2026,10 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                               top: element.position.y,
                               width: element.size.width,
                               height: element.size.height,
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedElementId(element.id);
                             }}
                             onMouseDown={(e) => {
                               if (e.button !== 0) return;
@@ -1949,7 +2101,7 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                             key={element.id}
                             className={`absolute cursor-move ${
                               selectedElementId === element.id
-                                ? "ring-1 ring-blue-400 rounded-full"
+                                ? "ring-2 ring-blue-400 rounded-full"
                                 : ""
                             }`}
                             style={{
@@ -1958,6 +2110,10 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                               width: element.size.width,
                               height: element.size.height,
                               opacity: 0.85,
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedElementId(element.id);
                             }}
                             onMouseDown={(e) => {
                               if (e.button !== 0) return;
@@ -1997,12 +2153,14 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                             }}
                           >
                             {isDot ? (
-                              <div
-                                className="w-3 h-3 rounded-full bg-green-500 mx-auto my-auto"
-                                style={{
-                                  boxShadow: "0 0 6px rgba(34,197,94,0.6)",
-                                }}
-                              />
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <div
+                                  className="w-4 h-4 rounded-full bg-green-500"
+                                  style={{
+                                    boxShadow: "0 0 6px rgba(34,197,94,0.6)",
+                                  }}
+                                />
+                              </div>
                             ) : (
                               <IconComponent
                                 className={`w-full h-full ${
@@ -2016,6 +2174,166 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                           </div>
                         );
                       }
+
+                      if (element.type === "image") {
+                        return (
+                          <div
+                            key={element.id}
+                            className="absolute cursor-move"
+                            style={{
+                              left: element.position.x,
+                              top: element.position.y,
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedElementId(element.id);
+                            }}
+                          >
+                            <Resizable
+                              size={element.size}
+                              onResizeStop={(e, d, ref, delta) => {
+                                handleUpdateElementSize(
+                                  page.id,
+                                  element.id,
+                                  element.size.width + delta.width,
+                                  element.size.height + delta.height
+                                );
+                              }}
+                              className={selectedElementId === element.id ? "ring-2 ring-blue-500" : ""}
+                            >
+                              <img
+                                src={element.data.url}
+                                className={`w-full h-full object-contain pointer-events-none ${
+                                  selectedElementId === element.id
+                                    ? "ring-2 ring-blue-500"
+                                    : ""
+                                }`}
+                                onMouseDown={(e) => {
+                                  if (e.button !== 0) return;
+                                  e.stopPropagation();
+
+                                  const startX = e.clientX - element.position.x;
+                                  const startY = e.clientY - element.position.y;
+
+                                  const handleMouseMove = (ev: MouseEvent) => {
+                                    handleUpdateElementPosition(
+                                      page.id,
+                                      element.id,
+                                      ev.clientX - startX,
+                                      ev.clientY - startY
+                                    );
+                                  };
+
+                                  const handleMouseUp = () => {
+                                    document.removeEventListener(
+                                      "mousemove",
+                                      handleMouseMove
+                                    );
+                                    document.removeEventListener(
+                                      "mouseup",
+                                      handleMouseUp
+                                    );
+                                  };
+
+                                  document.addEventListener(
+                                    "mousemove",
+                                    handleMouseMove
+                                  );
+                                  document.addEventListener(
+                                    "mouseup",
+                                    handleMouseUp
+                                  );
+                                }}
+                              />
+                            </Resizable>
+                          </div>
+                        );
+                      }
+
+                      if (element.type === "text") {
+                        return (
+                          <div
+                            key={element.id}
+                            className={`absolute cursor-move ${
+                              selectedElementId === element.id
+                                ? "ring-2 ring-blue-500 p-1"
+                                : "p-1"
+                            }`}
+                            style={{
+                              left: element.position.x,
+                              top: element.position.y,
+                              width: element.size.width,
+                              height: element.size.height,
+                              fontSize: element.data.fontSize,
+                              fontWeight: element.data.fontWeight,
+                              border: selectedElementId === element.id ? "2px solid #3b82f6" : "2px dashed #d1d5db",
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedElementId(element.id);
+                            }}
+                            contentEditable
+                            suppressContentEditableWarning
+                            onBlur={(e) => {
+                              const updated = [...pages];
+                              const pageIndex = updated.findIndex(
+                                (p) => p.id === page.id
+                              );
+                              const elementIndex = updated[
+                                pageIndex
+                              ].elements.findIndex((el) => el.id === element.id);
+                              if (elementIndex !== -1) {
+                                const el = updated[pageIndex].elements[elementIndex];
+                                if (el.type === "text") {
+                                  el.data.text = e.currentTarget.innerText;
+                                  setPages(updated);
+                                }
+                              }
+                            }}
+                            onMouseDown={(e) => {
+                              if (e.button !== 0) return;
+                              if ((e.target as HTMLElement).contentEditable === "true" && e.detail === 1) return;
+
+                              e.stopPropagation();
+
+                              const startX = e.clientX - element.position.x;
+                              const startY = e.clientY - element.position.y;
+
+                              const handleMouseMove = (ev: MouseEvent) => {
+                                handleUpdateElementPosition(
+                                  page.id,
+                                  element.id,
+                                  ev.clientX - startX,
+                                  ev.clientY - startY
+                                );
+                              };
+
+                              const handleMouseUp = () => {
+                                document.removeEventListener(
+                                  "mousemove",
+                                  handleMouseMove
+                                );
+                                document.removeEventListener(
+                                  "mouseup",
+                                  handleMouseUp
+                                );
+                              };
+
+                              document.addEventListener(
+                                "mousemove",
+                                handleMouseMove
+                              );
+                              document.addEventListener(
+                                "mouseup",
+                                handleMouseUp
+                              );
+                            }}
+                          >
+                            {element.data.text}
+                          </div>
+                        );
+                      }
+
                       return null;
                     })}
                 </div>
@@ -2373,16 +2691,35 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                       </div>
                     </div>
                   </div>
+                ) : selectedFolder === "text" ? (
+                  // Text UI
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => handleAddText("title")}
+                      className="w-full px-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors"
+                    >
+                      ➕ Thêm Tiêu đề
+                    </button>
+
+                    <button
+                      onClick={() => handleAddText("body")}
+                      className="w-full px-4 py-3 bg-emerald-400 hover:bg-emerald-500 text-white rounded-lg font-medium transition-colors"
+                    >
+                      ➕ Thêm Nội dung
+                    </button>
+                  </div>
                 ) : selectedFolder === "backgrounds" ? (
                   // Backgrounds Grid
                   <div className="grid grid-cols-2 gap-3">
-                    {resourceFolders
-                      .find((f) => f.id === selectedFolder)
-                      ?.items.map((item) => (
+                    {(() => {
+                      const items = (resourceFolders
+                        .find((f) => f.id === selectedFolder)
+                        ?.items || []).filter(isIconItem);
+                      return items.map((item) => (
                         <div
                           key={item.id}
                           className="cursor-pointer group"
-                          onClick={() => handleAddBackground(item)}
+                          onClick={() => handleAddBackground(item as unknown as Icon)}
                         >
                           <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2">
                             <img
@@ -2395,18 +2732,21 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                             {item.name}
                           </p>
                         </div>
-                      ))}
+                      ));
+                    })()}
                   </div>
                 ) : (
-                  // Regular Items Grid
+                  // Regular Items Grid (for icons, backgrounds, etc. with URLs)
                   <div className="grid grid-cols-2 gap-3">
-                    {resourceFolders
-                      .find((f) => f.id === selectedFolder)
-                      ?.items.map((item) => (
+                    {(() => {
+                      const items = (resourceFolders
+                        .find((f) => f.id === selectedFolder)
+                        ?.items || []).filter(isIconItem);
+                      return items.map((item) => (
                         <div
                           key={item.id}
                           className="cursor-pointer group"
-                          onClick={() => alert(`Thêm ${item.name} vào trang`)}
+                          onClick={() => handleAddImage(item as unknown as Icon)}
                         >
                           <div className="aspect-square rounded-lg overflow-hidden bg-gray-100 mb-2">
                             <img
@@ -2419,7 +2759,8 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                             {item.name}
                           </p>
                         </div>
-                      ))}
+                      ));
+                    })()}
                   </div>
                 )}
               </div>

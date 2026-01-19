@@ -71,8 +71,8 @@ export function BookList({ onBookSelect }: Props) {
         </button>
       </div>
 
-      {/* LIST – RECTANGLE CARD */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* LIST – BOOK RECTANGLE */}
+      <div className="flex flex-wrap gap-8">
         {books.map((book) => {
           const hasCover = isValidCover(book.coverUrl);
           const [from, to] = getGradientFromTitle(book.title);
@@ -83,66 +83,39 @@ export function BookList({ onBookSelect }: Props) {
               onClick={() => onBookSelect(book)}
               className="
                 group cursor-pointer
-                flex items-center gap-4
+                w-[280px]
                 bg-white
-                border border-gray-300
                 rounded-xl
-                p-4
-                shadow-sm
-                hover:shadow-md
-                hover:border-blue-500
+                shadow-lg
+                hover:shadow-2xl
                 transition
+                overflow-hidden
               "
             >
-              {/* Thumbnail */}
-              <div className="w-20 h-20 rounded-lg overflow-hidden shrink-0">
+              {/* COVER */}
+              <div className="h-[420px] bg-gray-100">
                 {hasCover ? (
                   <img
                     src={book.coverUrl}
                     alt={book.title}
                     className="w-full h-full object-cover"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display =
-                        "none";
-                    }}
                   />
                 ) : (
                   <div
                     className={`w-full h-full bg-gradient-to-br ${from} ${to}
-                                flex items-center justify-center text-white`}
+                flex items-center justify-center text-white`}
                   >
-                    <BookOpen className="w-6 h-6 opacity-90" />
+                    <BookOpen className="w-16 h-16 opacity-90" />
                   </div>
                 )}
               </div>
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-800 truncate">
+              {/* TITLE */}
+              <div className="p-4">
+                <p className="text-lg font-semibold text-gray-800 line-clamp-2 text-center">
                   {book.title}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Chưa có ảnh bìa
-                </p>
               </div>
-
-              {/* Delete */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toast.info("Xóa sách xử lý trong BookDetail");
-                }}
-                className="
-                  opacity-0 group-hover:opacity-100
-                  p-2 rounded-lg
-                  bg-red-50 hover:bg-red-100
-                  text-red-600
-                  transition
-                "
-                title="Xóa sách"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
             </div>
           );
         })}

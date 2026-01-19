@@ -1,14 +1,105 @@
 // src/ai/mapAiJsonToPages.ts
 
-type PageElement = {
-  id: string;
-  type: "background" | "chessboard" | "chess-piece" | "chess-marker";
-  position: { x: number; y: number };
-  size: { width: number; height: number };
-  layer: number;
-  data: any;
-  visible: boolean;
-};
+/* =======================
+   DATA TYPES
+======================= */
+
+interface BackgroundData {
+  url: string;
+  name?: string;
+}
+
+interface ChessboardData {
+  color1: string;
+  color2: string;
+}
+
+interface ChessPieceData {
+  pieceId: string;
+  side: "a" | "b";
+  chessboardId: string;
+  row: number;
+  col: number;
+}
+
+interface ChessMarkerData {
+  markerId: string;
+  chessboardId: string;
+  row: number;
+  col: number;
+}
+
+interface ImageData {
+  url: string;
+  name?: string;
+}
+
+interface TextData {
+  text: string;
+  textType: "title" | "body";
+  fontSize: number;
+  fontWeight: number;
+}
+
+/* =======================
+   PAGE ELEMENT (DISCRIMINATED UNION)
+======================= */
+
+export type PageElement =
+  | {
+      id: string;
+      type: "background";
+      data: BackgroundData;
+      position: { x: number; y: number };
+      size: { width: number; height: number };
+      layer: number;
+      visible: boolean;
+    }
+  | {
+      id: string;
+      type: "chessboard";
+      data: ChessboardData;
+      position: { x: number; y: number };
+      size: { width: number; height: number };
+      layer: number;
+      visible: boolean;
+    }
+  | {
+      id: string;
+      type: "chess-piece";
+      data: ChessPieceData;
+      position: { x: number; y: number };
+      size: { width: number; height: number };
+      layer: number;
+      visible: boolean;
+    }
+  | {
+      id: string;
+      type: "chess-marker";
+      data: ChessMarkerData;
+      position: { x: number; y: number };
+      size: { width: number; height: number };
+      layer: number;
+      visible: boolean;
+    }
+  | {
+      id: string;
+      type: "image";
+      data: ImageData;
+      position: { x: number; y: number };
+      size: { width: number; height: number };
+      layer: number;
+      visible: boolean;
+    }
+  | {
+      id: string;
+      type: "text";
+      data: TextData;
+      position: { x: number; y: number };
+      size: { width: number; height: number };
+      layer: number;
+      visible: boolean;
+    };
 
 type Page = {
   id: number;
