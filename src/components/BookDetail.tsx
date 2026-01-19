@@ -13,7 +13,7 @@ import { uploadImageToCloudinary } from "../services/uploadService";
 import { fetchIcons, addIcon, type Icon } from "../services/iconService";
 import { loadResources, saveResources } from "../utils/resourceStorage";
 import type { Resource } from "../types/Resource";
-import { exportBookToPdf } from "../utils/exportPdf";
+import { exportBookToPdf, exportBookImages } from "../utils/exportPdf";
 import { Save, Download } from "lucide-react";
 
 import {
@@ -343,6 +343,28 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
     } catch (err) {
       console.error(err);
       toast.error("Xuất PDF thất bại");
+    }
+  };
+
+  const handleExportImages = async () => {
+    try {
+      toast.info("Đang lưu và xuất ảnh các trang...");
+
+      // Lưu sách trước khi xuất
+      await handleSaveBook();
+
+      await exportBookImages({
+        bookTitle: book.title,
+        pages,
+        pageRefs: pageRefs.current,
+        pageSize,
+        orientation,
+      });
+
+      toast.success("Đã xuất ảnh từng trang (PNG)");
+    } catch (err) {
+      console.error(err);
+      toast.error("Xuất ảnh thất bại");
     }
   };
 
@@ -1769,6 +1791,15 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                 <span className="font-medium">Xuất PDF</span>
               </button>
 
+              {/* Export Images Button */}
+              <button
+                onClick={handleExportImages}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white transition-colors"
+              >
+                <Download className="w-5 h-5" />
+                <span className="font-medium">Xuất ảnh trang</span>
+              </button>
+
               {/* Delete Book Button */}
               <button
                 onClick={handleDeleteBook}
@@ -1896,6 +1927,7 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
                 ref={(el) => {
                   if (el) pageRefs.current[page.id] = el;
                 }}
+                data-page-id={page.id}
                 key={page.id}
                 className={`mx-auto bg-white shadow-lg relative cursor-pointer border-4 transition-all ${
                   selectedPageId === page.id

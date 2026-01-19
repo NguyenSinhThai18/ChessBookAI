@@ -9,8 +9,8 @@ import type { Book } from "./services/bookService";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "resources" | "books" | "settings"
-  >("resources");
+     "books" | "settings"
+  >("books");
 
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
 
