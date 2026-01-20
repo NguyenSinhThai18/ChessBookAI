@@ -48,6 +48,9 @@ export async function exportBookToPdf({
 
         if (!clonedPage) return;
 
+        // Remove editor-only UI artifacts (page number, empty state, selection borders, etc.)
+        sanitizePageForExport(clonedPage);
+
         // ✅ Remove oklch in raw styles (style tags + inline) before html2canvas parses them
         stripOklchInStyleTags(clonedDoc);
         stripOklchInlineStyles(clonedDoc.body || clonedPage);
@@ -113,6 +116,9 @@ export async function exportBookImages({
           `[data-page-id="${page.id}"]`
         ) as HTMLElement | null;
         if (!clonedPage) return;
+
+        // Remove editor-only UI artifacts
+        sanitizePageForExport(clonedPage);
 
         // Giữ màu và tránh lỗi oklch
         stripOklchInStyleTags(clonedDoc);
@@ -255,5 +261,63 @@ function stripOklchInlineStyles(root: HTMLElement) {
       "style",
       styleAttr.replace(/oklch\([^)]*\)/gi, "rgb(0,0,0)")
     );
+  });
+}
+
+/**
+ * Remove UI-only decorations from the page DOM (these exist in the editor but
+ * should not appear in exported PDF/PNG).
+ */
+function sanitizePageForExport(pageRoot: HTMLElement) {
+  // 1) Remove page number / delete button overlays (z-10 UI)
+  pageRoot.querySelectorAll("button[title='Xóa trang này']").forEach((el) => el.remove());
+
+  // "Trang {n}" label (top-right)
+  pageRoot
+    .querySelectorAll<HTMLElement>("div.absolute")
+    .forEach((el) => {
+      const t = (el.textContent || "").trim();
+      if (t.startsWith("Trang ")) el.remove();
+    });
+
+  // 2) Remove empty-page helper overlay ("{page.content}" + click hint)
+  pageRoot
+    .querySelectorAll<HTMLElement>("p")
+    .forEach((p) => {
+      const t = (p.textContent || "").trim().toLowerCase();
+      if (t.includes("click để chọn trang này")) {
+        p.closest("div")?.remove();
+      }
+    });
+
+  // 3) Remove selection/hover borders on the page container itself
+  pageRoot.style.border = "none";
+  pageRoot.style.boxShadow = "none";
+
+  // 4) Remove ring/outline artifacts for selected elements (common tailwind rings)
+  pageRoot.querySelectorAll<HTMLElement>("*").forEach((el) => {
+    // remove tailwind ring classes if present
+    Array.from(el.classList).forEach((cls) => {
+      if (cls.startsWith("ring-")) el.classList.remove(cls);
+    });
+
+    // remove inline focus/selection styles that often show as borders
+    const ce = el.getAttribute("contenteditable");
+    if (ce === "true") {
+      el.style.outline = "none";
+      el.style.boxShadow = "none";
+      // border is usually editor-only; keep art borders elsewhere
+      el.style.border = "none";
+    }
+  });
+
+  // 5) Remove chessboard coordinate labels that appear only when selected
+  // These are small (10px) absolute overlays with A-H / 1-8.
+  pageRoot.querySelectorAll<HTMLElement>("div").forEach((el) => {
+    const fs = el.style.fontSize;
+    const text = (el.textContent || "").trim();
+    const isTiny = fs === "10px" || el.className.includes("text-[10px]");
+    const isCoord = /^[A-H]$/.test(text) || /^[1-8]$/.test(text);
+    if (isTiny && isCoord) el.remove();
   });
 }
