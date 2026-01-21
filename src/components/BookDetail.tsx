@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { callGitHubAI } from "../ai/githubAiClient";
 import { mapAiJsonToPages } from "../ai/mapAiJsonToPages";
 import { normalizePageElements } from "../ai/normalizePageElements";
-import { buildChessBookPrompt } from "../ai/aiPrompt";
 import { fetchPages, saveAllPages } from "../services/pageService";
 import { updateBook } from "../services/bookService";
 import type { Book } from "../services/bookService";
@@ -52,6 +51,8 @@ import { toast } from "sonner";
 import { Textarea } from "./ui/textarea";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+
+import type { PipelineTrace } from "../ai/pipeline/types";
 
 // Import types from ai module
 import type { PageElement } from "../ai/mapAiJsonToPages";
@@ -102,6 +103,10 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
     null
   );
   const [isAIModalOpen, setIsAIModalOpen] = useState(false);
+  const [isGeneratingAI, setIsGeneratingAI] = useState(false);
+  const [showPipelinePanel, setShowPipelinePanel] = useState(false);
+  const [pipelineTrace, setPipelineTrace] = useState<PipelineTrace | null>(null);
+  const [pipelineSuccess, setPipelineSuccess] = useState(false);
   const [aiTemplate, setAiTemplate] = useState<PageElement[]>([]);
   const [aiPageCount, setAiPageCount] = useState(5);
   const [aiPageCountMode, setAiPageCountMode] = useState<"fixed" | "auto">(
@@ -1119,19 +1124,21 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
     }
 
     try {
-      toast.info("Đang gọi AI...");
+      setIsGeneratingAI(true);
+      setShowPipelinePanel(true);
+      setPipelineTrace(null);
+      setPipelineSuccess(false);
+      toast.info("Đang chạy pipeline AI (7 giai đoạn)...");
 
-      const finalPrompt = buildChessBookPrompt(aiPrompt);
+      // Pipeline: topic -> plan -> content -> validators -> autofix -> ready JSON
+      const { runChessBookPipeline } = await import("../ai/pipeline/runChessBookPipeline");
+      const { aiJson } = await runChessBookPipeline(aiPrompt, {
+        maxAttempts: 3,
+        onTraceUpdate: (t: any) => setPipelineTrace({ ...t }),
+      });
+      const sanitized = sanitizeAIJson(aiJson);
 
-      const aiText = await callGitHubAI(finalPrompt);
-
-      if (!aiText) {
-        throw new Error("AI trả về rỗng");
-      }
-
-      const aiJson = sanitizeAIJson(JSON.parse(aiText));
-
-      const newPages = mapAiJsonToPages(aiJson, aiTemplate).map(
+      const newPages = mapAiJsonToPages(sanitized, aiTemplate).map(
         (page, index) => ({
           ...page,
           // Force string ID for pages created by AI to avoid number vs string issues
@@ -1170,13 +1177,15 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
       );
 
       setPages((prev) => [...prev, ...newPages]);
+      setPipelineSuccess(true);
 
-      setIsAIModalOpen(false);
-
-      toast.success(`Đã tạo ${newPages.length} trang từ AI`);
+      toast.success(`Đã tạo thành công ${newPages.length} trang từ AI!`);
     } catch (err: any) {
       console.error(err);
-      toast.error("AI lỗi hoặc JSON không hợp lệ");
+      toast.error("AI lỗi hoặc JSON/pipeline không hợp lệ");
+      setPipelineSuccess(false);
+    } finally {
+      setIsGeneratingAI(false);
     }
   };
 
@@ -3083,6 +3092,157 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
 
             {/* Modal Body */}
             <div className="flex-1 overflow-auto p-6">
+              {/* Pipeline Panel (inline to avoid nested modal issues) */}
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-lg font-semibold text-gray-800">AI Pipeline</h3>
+                  <button
+                    onClick={() => setShowPipelinePanel((v) => !v)}
+                    className="px-3 py-1.5 border border-gray-300 hover:bg-gray-50 rounded-lg text-sm font-medium text-gray-700"
+                  >
+                    {showPipelinePanel ? "Ẩn pipeline" : "Xem pipeline"}
+                  </button>
+                </div>
+
+                {showPipelinePanel && (
+                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                    {(() => {
+                      const pipelineSteps = [
+                        {
+                          key: "topic_interpreter",
+                          title: "① Topic Interpreter",
+                          desc: "Phân tích prompt ngắn → loại kiến thức + core idea + đối tượng",
+                        },
+                        {
+                          key: "lesson_planner",
+                          title: "② Lesson Planner (Sư phạm)",
+                          desc: "Tạo kịch bản guide + ladder bài tập tăng dần (chưa sinh bàn cờ)",
+                        },
+                        {
+                          key: "content_generator",
+                          title: "③ Content Generator",
+                          desc: "Sinh dữ liệu trang (pieces/points theo luật cứng)",
+                        },
+                        {
+                          key: "chess_rule_validator",
+                          title: "④ Chess Rule Validator",
+                          desc: "Kiểm tra ràng buộc cờ (square hợp lệ, exercise không points, đủ vua, không trùng ô...)",
+                        },
+                        {
+                          key: "pedagogy_validator",
+                          title: "⑤ Pedagogy Validator",
+                          desc: "Kiểm tra tính sư phạm (tối thiểu)",
+                        },
+                        {
+                          key: "auto_fixer",
+                          title: "⑥ Auto Fixer",
+                          desc: "Sửa lỗi tối thiểu nếu FAIL (không tạo lại từ đầu)",
+                        },
+                        {
+                          key: "page_generator",
+                          title: "⑦ Page Generator",
+                          desc: "Sẵn sàng map sang UI/PDF",
+                        },
+                      ];
+
+                      // Determine current running step
+                      // The last stage in the trace is the one currently being worked on
+                      const stages = pipelineTrace?.stages ?? [];
+                      let currentRunningStep: string | null = null;
+                      
+                      if (isGeneratingAI && stages.length > 0) {
+                        const lastStage = stages[stages.length - 1];
+                        // If last stage doesn't have output or errors yet, it's currently running
+                        if (!lastStage.output && (!lastStage.errors || lastStage.errors.length === 0)) {
+                          currentRunningStep = lastStage.name;
+                        }
+                      }
+
+                      return pipelineSteps.map((node) => {
+                        const hasAny = stages.some((s) => s.name === node.key);
+                        const last = [...stages].reverse().find((s) => s.name === node.key);
+                        const hasErrors = !!last?.errors?.length;
+                        const isCurrentRunning = currentRunningStep === node.key;
+                        const isCompleted = hasAny && !hasErrors && (last?.output !== undefined || last?.errors?.length === 0);
+
+                        let statusLabel: string;
+                        let statusClass: string;
+                        let borderClass: string = "border-gray-200";
+
+                        if (pipelineSuccess && isCompleted) {
+                          statusLabel = "Hoàn thành";
+                          statusClass = "bg-green-100 text-green-700";
+                          borderClass = "border-green-300";
+                        } else if (!pipelineTrace) {
+                          statusLabel = "Chưa chạy";
+                          statusClass = "bg-gray-200 text-gray-700";
+                        } else if (hasErrors) {
+                          statusLabel = "FAIL";
+                          statusClass = "bg-red-100 text-red-700";
+                          borderClass = "border-red-300";
+                        } else if (isCurrentRunning && isGeneratingAI) {
+                          statusLabel = "Đang chạy...";
+                          statusClass = "bg-blue-100 text-blue-700 animate-pulse";
+                          borderClass = "border-blue-400 ring-2 ring-blue-300";
+                        } else if (isCompleted) {
+                          statusLabel = "OK";
+                          statusClass = "bg-green-100 text-green-700";
+                          borderClass = "border-green-300";
+                        } else {
+                          statusLabel = "Đang chờ";
+                          statusClass = "bg-amber-100 text-amber-700";
+                        }
+
+                        return (
+                          <div
+                            key={node.key}
+                            className={`bg-white rounded-lg border-2 ${borderClass} p-3 transition-all duration-200 ${
+                              isCurrentRunning && isGeneratingAI ? "shadow-md scale-[1.02]" : ""
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1">
+                                <div className="font-semibold text-gray-900">{node.title}</div>
+                                <div className="text-sm text-gray-600 mt-1">{node.desc}</div>
+                              </div>
+                              <div className={`px-3 py-1 rounded text-xs font-semibold ${statusClass}`}>
+                                {statusLabel}
+                              </div>
+                            </div>
+
+                            {last?.output && (
+                              <pre className="mt-3 text-xs bg-gray-50 border border-gray-200 rounded p-3 overflow-auto max-h-32">
+                                {JSON.stringify(last.output, null, 2)}
+                              </pre>
+                            )}
+
+                            {hasErrors && (
+                              <pre className="mt-3 text-xs bg-red-50 border border-red-200 rounded p-3 overflow-auto text-red-800 max-h-32">
+                                {JSON.stringify(last?.errors, null, 2)}
+                              </pre>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                    
+                    {pipelineSuccess && (
+                      <div className="mt-4 p-4 bg-green-50 border-2 border-green-300 rounded-lg">
+                        <div className="flex items-center gap-2 text-green-800">
+                          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                          <span className="font-semibold text-lg">Đã tạo sách thành công!</span>
+                        </div>
+                        <p className="text-sm text-green-700 mt-2">
+                          Bạn có thể xem các trang đã tạo ở phía dưới. Dialog sẽ không tự đóng để bạn có thể xem lại pipeline.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Configuration Section */}
               <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">
@@ -3617,17 +3777,20 @@ export function BookDetail({ book, onBack, onDelete }: BookDetailProps) {
             <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-end gap-3">
               <button
                 onClick={() => setIsAIModalOpen(false)}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                disabled={isGeneratingAI}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Hủy
               </button>
               <button
                 onClick={handleGenerateWithAI}
-                disabled={!aiPrompt.trim()}
+                disabled={!aiPrompt.trim() || isGeneratingAI}
                 className="flex items-center gap-2 px-6 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Wand2 className="w-5 h-5" />
-                <span className="font-medium">Tạo</span>
+                <span className="font-medium">
+                  {isGeneratingAI ? "Đang tạo..." : "Tạo"}
+                </span>
               </button>
             </div>
           </div>
