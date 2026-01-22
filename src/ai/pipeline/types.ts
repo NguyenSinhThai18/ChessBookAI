@@ -69,6 +69,7 @@ export type ValidationErrorCode =
   | 'INVALID_SQUARE'
   | 'DUPLICATE_PIECE_SQUARE'
   | 'MISSING_KING'
+  | 'PIECE_POINT_CONFLICT'
   | 'LESSON_SEQUENCE_ERROR';
 
 export interface ValidationError {
@@ -111,23 +112,23 @@ export interface AiBookJson {
 
 
 
-export type ValidationErrorCode =
+// export type ValidationErrorCode =
 
-  | 'JSON_PARSE_FAILED'
+//   | 'JSON_PARSE_FAILED'
 
-  | 'MISSING_PAGES'
+//   | 'MISSING_PAGES'
 
-  | 'INVALID_PAGE_TYPE'
+//   | 'INVALID_PAGE_TYPE'
 
-  | 'EXERCISE_HAS_POINTS'
+//   | 'EXERCISE_HAS_POINTS'
 
-  | 'GUIDE_MISSING_POINTS'
+//   | 'GUIDE_MISSING_POINTS'
 
-  | 'INVALID_SQUARE'
+//   | 'INVALID_SQUARE'
 
-  | 'DUPLICATE_PIECE_SQUARE'
+//   | 'DUPLICATE_PIECE_SQUARE'
 
-  | 'MISSING_KING';
+//   | 'MISSING_KING';
 
 
 

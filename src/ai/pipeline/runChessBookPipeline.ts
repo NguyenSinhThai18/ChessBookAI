@@ -91,17 +91,35 @@ export async function runChessBookPipeline(
     emit();
     const text = await callGitHubAI(genPrompt);
     if (!text) throw new Error('Content generator returned empty');
+
     const parsed = safeJsonParse<AiBookJson>(text);
+
+    // 🧠 GHI FULL OUTPUT AI
+    trace.stages[trace.stages.length - 1].output = {
+      rawText: text, // ⭐ QUAN TRỌNG NHẤT
+      parsedOk: parsed.ok,
+      parsedJson: parsed.ok ? parsed.value : null,
+      pagesCount:
+        parsed.ok && Array.isArray(parsed.value?.pages)
+          ? parsed.value.pages.length
+          : null,
+    };
+    emit();
+
+    // ⛔ parse fail thì retry như cũ
     if (!parsed.ok) {
       trace.stages[trace.stages.length - 1].errors = [
-        { code: 'JSON_PARSE_FAILED', message: `Content JSON parse failed (attempt ${attempt})` },
+        {
+          code: 'JSON_PARSE_FAILED',
+          message: `Content JSON parse failed (attempt ${attempt})`,
+        },
       ];
       emit();
       continue;
     }
+
     aiJson = parsed.value;
-    trace.stages[trace.stages.length - 1].output = { lesson: aiJson.lesson, pages: aiJson.pages?.length };
-    emit();
+
 
     // ④ Chess rule validator (minimal deterministic checks right now)
     const ruleErrors = validateChessRuleConstraints(aiJson);
