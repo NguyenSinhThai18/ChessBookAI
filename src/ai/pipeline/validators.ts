@@ -129,11 +129,43 @@ export function validateChessRuleConstraints(
     }
 
     errors.push(...validatePiecesUniqueness(page, idx));
+    errors.push(...validatePiecePointConflicts(page, idx));
     errors.push(...validateKingsPresent(page, idx));
   });
 
   return errors;
 }
+
+function validatePiecePointConflicts(
+  page: AiJsonPage,
+  pageIndex: number
+): ValidationError[] {
+  const errors: ValidationError[] = [];
+
+  if (!Array.isArray(page.pieces) || !Array.isArray((page as any).points)) {
+    return errors;
+  }
+
+  const pieceSquares = new Set(
+    page.pieces
+      .map((p) => p.square)
+      .filter((sq) => isValidSquare(sq))
+  );
+
+  for (const sq of (page as any).points) {
+    if (pieceSquares.has(sq)) {
+      errors.push({
+        code: 'PIECE_POINT_CONFLICT',
+        message: `Square ${sq} contains both chess piece and point marker`,
+        pageIndex,
+        details: { square: sq },
+      });
+    }
+  }
+
+  return errors;
+}
+
 
 /* ================= Pedagogy Validator ================= */
 

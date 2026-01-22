@@ -26,11 +26,26 @@ export function autoFix(aiJson: AiBookJson, errors: ValidationError[]): {
       changed = true;
     }
 
-    // Remove invalid points
-    if (page.type === 'guide' && Array.isArray(page.points)) {
+    // Remove point markers that conflict with chess pieces (KEEP PIECE)
+    if (
+      page.type === 'guide' &&
+      Array.isArray(page.points) &&
+      Array.isArray(page.pieces)
+    ) {
+      const pieceSquares = new Set(
+        page.pieces
+          .map((p: any) => p.square)
+          .filter((sq: any) => isValidSquare(sq))
+      );
+
       const before = page.points.length;
-      page.points = page.points.filter((sq: any) => isValidSquare(sq));
-      if (page.points.length !== before) changed = true;
+      page.points = page.points.filter(
+        (sq: any) => !pieceSquares.has(sq)
+      );
+
+      if (page.points.length !== before) {
+        changed = true;
+      }
     }
 
     // Remove invalid piece squares
