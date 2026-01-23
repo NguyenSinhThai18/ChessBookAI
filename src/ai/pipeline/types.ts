@@ -6,7 +6,11 @@ export interface TopicBrief {
   audience: 'kid_beginner';
   keywords: string[];
   misconceptions: string[];
+
+  scope: 'single_piece' | 'multi_piece';
+  relatedPieces?: Array<'queen' | 'rook' | 'bishop' | 'knight'>;
 }
+
 
 export interface LessonPlanLesson {
   lessonId: string;
